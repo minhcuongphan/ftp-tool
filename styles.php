@@ -1,12 +1,6 @@
 <style>
 body {
   position: relative;
-  font-family: "lucida grande", "Segoe UI", Arial, sans-serif;
-  font-size: 14px;
-  width: 1024;
-  padding: 1em;
-  margin: 0;
-  min-height: 100%;
 }
 th {
   font-weight: normal;
@@ -40,6 +34,10 @@ thead {
     background-color: rgba(0, 0, 0, 0.6);
 }
 
+.actions button {
+    font-size: 14px;
+}
+
 #item_popup {
     display: none;
     position: absolute;
@@ -65,6 +63,11 @@ thead {
 
 .search_section {
     float: right;
+    display: inline-flex;
+}
+
+#search_scope select {
+    padding: 1px 0px;
 }
 
 button.search_button {
@@ -158,26 +161,31 @@ table {
   border-collapse: collapse;
   width: 100%;
 }
+
 thead {
   max-width: 1024px;
 }
-td {
+
+#list td {
   padding: 0.2em 1em 0.2em 0.2em;
   border-bottom: 1px solid #def;
   height: 30px;
   font-size: 12px;
   white-space: nowrap;
 }
-td.first {
+
+#list td.first {
   font-size: 14px;
   white-space: normal;
 }
-td.empty {
+
+#list td.empty {
   color: #777;
   font-style: italic;
   text-align: center;
   padding: 3em 0;
 }
+
 .is_dir .size {
   color: transparent;
   font-size: 0;
@@ -195,7 +203,7 @@ a.delete {
   background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAABGdBTUEAAK/INwWK6QAAABl0RVh0U29mdHdhcmUAQWRvYmUgSW1hZ2VSZWFkeXHJZTwAAADtSURBVHjajFC7DkFREJy9iXg0t+EHRKJDJSqRuIVaJT7AF+jR+xuNRiJyS8WlRaHWeOU+kBy7eyKhs8lkJrOzZ3OWzMAD15gxYhB+yzAm0ndez+eYMYLngdkIf2vpSYbCfsNkOx07n8kgWa1UpptNII5VR/M56Nyt6Qq33bbhQsHy6aR0WSyEyEmiCG6vR2ffB65X4HCwYC2e9CTjJGGok4/7Hcjl+ImLBWv1uCRDu3peV5eGQ2C5/P1zq4X9dGpXP+LYhmYz4HbDMQgUosWTnmQoKKf0htVKBZvtFsx6S9bm48ktaV3EXwd/CzAAVjt+gHT5me0AAAAASUVORK5CYII=)
     no-repeat scroll 0 2px;
   color: #d00;
-  margin-left: 15px;
+  margin-left: 4px;
   font-size: 11px;
   padding: 0 0 0 13px;
 }
@@ -215,6 +223,10 @@ a.delete {
   padding: 4px 0 4px 20px;
 }
 
+.rename {
+  padding-left: 4px;
+}
+
 .actions {
   float: left;
   margin-left: 0px;
@@ -223,11 +235,21 @@ a.delete {
   margin-bottom: 11px;
 }
 
+input#search {
+    width: 100%;
+}
+
 #upload_label {
-    display: inline-block;
-    color: black;
-    font-size: 15px;
-    padding-top: 10px;
+  display: inline-block;
+  color: black;
+  font-size: 14px;
+  font-weight: 400;
+  padding-top: 3px;
+}
+
+.create_btn, .rename_btn {
+  font-size: 14px;
+  margin-left: 14px !important;
 }
 
 /* Form create new folder */
@@ -244,6 +266,10 @@ a.delete {
   width: 280px;
 }
 
+.error_messages {
+  color: red;
+}
+
 /* The popup form - hidden by default */
 .form-popup {
     position: fixed;
@@ -252,6 +278,11 @@ a.delete {
     transform: translate(-50%, -50%);
     width: 50%;
     z-index: 9;
+}
+
+span.close_icon, .close_icon_rename_form {
+    float: right;
+    font-size: 16px;
 }
 
 /* Add styles to the form container */
@@ -265,7 +296,7 @@ a.delete {
 .form-container input[type=text], .form-container input[type=password] {
   width: 100%;
   padding: 15px;
-  margin: 5px 0 22px 0;
+  margin: 20px 0 15px 0;
   border: none;
   background: #f1f1f1;
 }
@@ -280,12 +311,13 @@ a.delete {
 .form-container .btn {
   background-color: #04AA6D;
   color: white;
-  padding: 16px 20px;
+  padding: 8px 20px;
   border: none;
   cursor: pointer;
-  width: 100%;
-  margin-bottom:10px;
+  width: 45%;
+  margin-bottom: 10px;
   opacity: 0.8;
+  margin-left: 4px;
 }
 
 /* Add a red background color to the cancel button */
@@ -296,7 +328,121 @@ a.delete {
 /* Add some hover effects to buttons */
 .form-container .btn:hover, .open-button:hover {
   opacity: 1;
-} */
-
+}
 /* End form create new folder */
+
+
+/**CSS for loading spinner */
+
+.spinner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/*******************\
+    Loading Roller
+\*******************/
+@-webkit-keyframes lds-roller {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+@keyframes lds-roller {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+.lds-roller {
+  position: relative;
+  right: 160px;
+  bottom: 15px;
+}
+.lds-roller div {
+  -webkit-animation: lds-roller 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+          animation: lds-roller 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+  transform-origin: 32px 32px;
+}
+.lds-roller div:after {
+  position: absolute;
+  display: block;
+  background: #00539f;
+  border-radius: 50%;
+  content: " ";
+  margin: -3px 0 0 -3px;
+  height: 6px;
+  width: 6px;
+}
+.lds-roller div:nth-child(1) {
+  -webkit-animation-delay: -0.036s;
+          animation-delay: -0.036s;
+}
+.lds-roller div:nth-child(1):after {
+  top: 50px;
+  left: 50px;
+}
+.lds-roller div:nth-child(2) {
+  -webkit-animation-delay: -0.072s;
+          animation-delay: -0.072s;
+}
+.lds-roller div:nth-child(2):after {
+  top: 54px;
+  left: 45px;
+}
+.lds-roller div:nth-child(3) {
+  -webkit-animation-delay: -0.108s;
+          animation-delay: -0.108s;
+}
+.lds-roller div:nth-child(3):after {
+  top: 57px;
+  left: 39px;
+}
+.lds-roller div:nth-child(4) {
+  -webkit-animation-delay: -0.144s;
+          animation-delay: -0.144s;
+}
+.lds-roller div:nth-child(4):after {
+  top: 58px;
+  left: 32px;
+}
+.lds-roller div:nth-child(5) {
+  -webkit-animation-delay: -0.18s;
+          animation-delay: -0.18s;
+}
+.lds-roller div:nth-child(5):after {
+  top: 57px;
+  left: 25px;
+}
+.lds-roller div:nth-child(6) {
+  -webkit-animation-delay: -0.216s;
+          animation-delay: -0.216s;
+}
+.lds-roller div:nth-child(6):after {
+  top: 54px;
+  left: 19px;
+}
+.lds-roller div:nth-child(7) {
+  -webkit-animation-delay: -0.252s;
+          animation-delay: -0.252s;
+}
+.lds-roller div:nth-child(7):after {
+  top: 50px;
+  left: 14px;
+}
+.lds-roller div:nth-child(8) {
+  -webkit-animation-delay: -0.288s;
+          animation-delay: -0.288s;
+}
+.lds-roller div:nth-child(8):after {
+  top: 45px;
+  left: 10px;
+}
+/**End CSS for loading spinner */
 </style>

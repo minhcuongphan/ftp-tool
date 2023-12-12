@@ -50,8 +50,9 @@ $(function() {
     var XSRF = (document.cookie.match('(^|; )_sfm_xsrf=([^;]*)') || 0)[2];
     var MAX_UPLOAD_SIZE = <?php echo $MAX_UPLOAD_SIZE ?>;
     var searchParams = new URLSearchParams(window.location.search);
-
+    var existing_file_names = [];
     var $tbody = $('#list');
+
     $(window).on('hashchange', list).trigger('hashchange');
     $('#table').tablesorter();
 
@@ -67,28 +68,42 @@ $(function() {
         return false;
     });
 
+
     $('body').on('click', '#create_new_folder', function(e) {
         $('#myForm').removeClass('d-none');
+        $('#dirname').val('');
+        $('.error_messages').text('');
         $('.overlay').removeClass('d-none');
     });
 
-    $('.close_folder_creation_form').on('click', function(e) {
-        closefoldercreationform();
+    $('body').on('click', '#rename_item', function(e) {
+        $('#folder_rename_form').removeClass('d-none');
+        $('#folder_rename').attr('data-file', $(this).data('file'));
+        $('.overlay').removeClass('d-none');
+    });
+
+    $('body').on('click', '.breadcrumb_value, .item', function(e) {
+        $('.search_input').val('');
+        searchParams.delete('search')
+    });
+
+    $('.close_folder_creation_form, .close_icon').on('click', function(e) {
+        closeFolderCreationForm();
+    });
+
+    $('.close_folder_rename_form, .close_icon_rename_form').on('click', function(e) {
+        closeFolderRenameForm();
     });
 
     // Prevent the default context menu
     $('body').on('contextmenu', '.item', function (e) {
         e.preventDefault();
         let data_file = $(this).attr('data-file');
-        let is_directory = $(this).attr('data-is-dir');
+        let is_dir = $(this).attr('data-is-dir');
 
-        if (is_directory === "true") {
-            $('#download_item').addClass('d-none');
-        } else {
-            $('#download_item').removeClass('d-none');
-            $('#download_item').attr('href', '?do=download&file=' + data_file);
-        }
-
+        $('#folder_rename').attr('data-file', data_file);
+        $('#rename_item').toggleClass('d-none', is_dir !== 'true');
+        $('#download_item').attr('href', '?do=download&file=' + data_file);
         $('#delete_item').attr('data-file', data_file);
         $("#item_popup").css({
             left:e.pageX + 'px',
@@ -97,8 +112,11 @@ $(function() {
     });
 
     $('#search').on('input', function (e) {
+        //$('#loading_roller').removeClass('d-none');
         searchParams.set('search', $(this).val());
+        searchParams.set('search_scope', $('#search_scope').find(':selected').val());
         list();
+        //$('#loading_roller').addClass('d-none');
     });
 
     $('#refresh_button').on('click', function () {
@@ -112,6 +130,31 @@ $(function() {
         $('#item_popup').hide();
     });
 
+    $('body').on('submit', 'form#folder_rename', (function(e) {
+        let hashval = decodeURIComponent(window.location.hash.substr(1));
+        let $dir = $(this).find('[name=new_folder_name]');
+        let oldname = $(this).attr('data-file');
+        $('.error_messages').empty();
+
+        $dir.val().length && $.post('?', {
+            'do': 'folder_rename',
+            name: $dir.val(),
+            old_name: oldname,
+            xsrf: XSRF,
+            file: hashval
+        }, function(data) {
+            if (data.success) {
+                closeFolderRenameForm();
+                list();
+                $dir.val('');
+            } else {
+                $('.error_messages').text(data.message);
+            }
+        }, 'json');
+
+        return false;
+    }));
+
     $('#mkdir').submit(function(e) {
         var hashval = decodeURIComponent(window.location.hash.substr(1)),
             $dir = $(this).find('[name=name]');
@@ -122,14 +165,19 @@ $(function() {
             xsrf: XSRF,
             file: hashval
         }, function(data) {
-            closefoldercreationform();
-            list();
+            if (data.success) {
+                closeFolderCreationForm();
+                list();
+                $dir.val('');
+            } else {
+                $('.error_messages').text(data.message);
+            }
         }, 'json');
-        $dir.val('');
+
         return false;
     });
 
-    <?php if ($allow_upload): ?>
+    <?php if ($allowUpload): ?>
         $('input[type=file]').change(function(e) {
             e.preventDefault();
             $.each(this.files, function(k, file) {
@@ -137,12 +185,24 @@ $(function() {
             });
         });
 
-        function closefoldercreationform() {
+        function closeFolderCreationForm() {
             $('#myForm').addClass('d-none');
             $('.overlay').addClass('d-none');
         };
 
+        function closeFolderRenameForm() {
+            $('.error_messages').empty();
+            $('#folder_rename_form').addClass('d-none');
+            $('.overlay').addClass('d-none');
+        };
+
         function uploadFile(file) {
+            if (existing_file_names.includes(file.name)) {
+                if(!confirm(`${file.name} already exists. Do you want to replace it?`)) {
+                    return;
+                }
+            }
+
             var folder = decodeURIComponent(window.location.hash.substr(1));
 
             if (file.size > MAX_UPLOAD_SIZE) {
@@ -164,8 +224,13 @@ $(function() {
             var xhr = new XMLHttpRequest();
             xhr.open('POST', '?');
             xhr.onload = function() {
-                $row.remove();
-                list();
+                //let error_responses =  JSON.parse(xhr.responseText);
+                //console.log(error_responses.error.msg);
+                if (xhr.status == 200) {
+                    $row.remove();
+                    list();
+                    return;
+                }
             };
             xhr.upload.onprogress = function(e) {
                 if (e.lengthComputable) {
@@ -193,12 +258,14 @@ $(function() {
     function list() {
         let hashval = window.location.hash.substr(1);
         let searchterm = searchParams.get('search') ?? '';
-
-        $.get('?do=list&file=' + hashval + '&search=' + searchterm, function(data) {
+        let searchscope = searchParams.get('search_scope') ?? '';
+        $.get('?do=list&file=' + hashval + '&search=' + searchterm + '&search_scope=' + searchscope, function(data) {
             $tbody.empty();
             $('#breadcrumb').empty().html(renderBreadcrumbs(hashval));
             if (data.success) {
+                existing_file_names = [];
                 $.each(data.results, function(k, v) {
+                    existing_file_names.push(v.name);
                     $tbody.append(renderFileRow(v));
                 });
                 !data.results.length && $tbody.append('<tr><td class="empty" colspan=5>This folder is empty</td></tr>')
@@ -216,7 +283,7 @@ $(function() {
             .attr('data-is-dir', data.is_dir)
             .attr('data-file', data.path)
             .text(data.name);
-        var allow_direct_link = <?php echo $allow_direct_link ? 'true' : 'false'; ?>;
+        var allow_direct_link = <?php echo $allowDirectLink ? 'true' : 'false'; ?>;
         if (!data.is_dir && !allow_direct_link) $link.css('pointer-events', 'none');
         var $dl_link = $('<a/>').attr('href', '?do=download&file=' + encodeURIComponent(data.path))
             .addClass('download').text('download');
@@ -237,15 +304,20 @@ $(function() {
 
     function renderBreadcrumbs(path) {
         var base = "",
-            $html = $('<div class="breadcrumb_items"/>').append($('<a href=#>Home</a></div>'));
+            $html = $('<div class="breadcrumb_items"/>').append($('<a class="breadcrumb_value" href=#>Home</a></div>'));
         $.each(path.split('%2F'), function(k, v) {
-            if (v) {
-                var v_as_text = decodeURIComponent(v);
+            if (!v) {
+                return;
+            }
+
+            let v_as_text = decodeURIComponent(v);
+            if (v_as_text !== '.') {
                 $html.append($('<span/>').text(' ▸ '))
-                    .append($('<a/>').attr('href', '#' + base + v).text(v_as_text));
+                    .append($('<a class="breadcrumb_value"/>').attr('href', '#' + base + v).text(v_as_text));
                 base += v + '%2F';
             }
         });
+
         return $html;
     }
 

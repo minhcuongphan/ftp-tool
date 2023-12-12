@@ -1,77 +1,199 @@
 <?php
 
+include "config.php";
+
 //Security options
-$allow_delete = true; // Set to false to disable delete button and delete POST request.
-$allow_upload = true; // Set to true to allow upload files
-$allow_create_folder = true; // Set to false to disable folder creation
-$allow_direct_link = true; // Set to false to only allow downloads and not direct link
-$allow_show_folders = true; // Set to false to hide all subdirectories
+$allowDelete = true; // Set to false to disable delete button and delete POST request.
+$allowUpload = true; // Set to true to allow upload files
+$allowCreateFolder = true; // Set to false to disable folder creation
+$allowDirectLink = true; // Set to false to only allow downloads and not direct link
+$allowShowFolders = true; // Set to false to hide all subdirectories
 
-$disallowed_extensions = ['php'];  // must be an array. Extensions disallowed to be uploaded
-$hidden_extensions = ['php']; // must be an array of lowercase file extensions. Extensions hidden in directory index
+$disallowedExtensions = ['php'];  // must be an array. Extensions disallowed to be uploaded
+$hiddenExtensions = ['php']; // must be an array of lowercase file extensions. Extensions hidden in directory index
+
+///////// MAIN ROUTINE /////////
+
+$task = $_POST['do'];
+if (!$task) {
+    $task = $_GET['do'];
+}
+
+$file = $_REQUEST['file'] ?: STORED_DIR;
 
 
-$file = $_REQUEST['file'] ?: '.';
+switch ($task) {
+    case 'list':
+        getListOfFilesAndFolders($file, $allowShowFolders, $hiddenExtensions);
+        break;
+    case 'delete':
+        deleteFileOrFolderByPath($file, $allowDelete);
+        break;
+    case 'mkdir':
+        $directoryName = $_POST['name'];
+        makeDirectory($file, $directoryName, $allowCreateFolder);
+        break;
+    case 'folder_rename':
+        $newName = $_POST['name'];
+        $oldName = $_POST['old_name'];
+        folderRename($file, $newName, $oldName);
+        break;
+    case 'upload':
+        uploadFileToFolder($file, $disallowedExtensions, $allowUpload);
+        break;
+    case 'download':
+        downloadFileExecute($file);
+        break;
+    default:
+        break;
+}
 
-if($_GET['do'] == 'list') {
+function downloadFileExecute($file)
+{
+    $downloadRes = is_dir(realpath($file)) ? zipAndDownloadFolder($file) : downloadFile($file);
+    exit;
+}
+
+function uploadFileToFolder($file, $disallowedExtensions, $allowUpload)
+{
+    if (!$allowUpload) {
+        return;
+    }
+
+    foreach($disallowedExtensions as $ext) {
+        if(preg_match(sprintf('/\.%s$/', preg_quote($ext)), $_FILES['file_data']['name'])) {
+            err(403, "Files of this type are not allowed.");
+        }
+    }
+
+    move_uploaded_file($_FILES['file_data']['tmp_name'], $file . '/' . $_FILES['file_data']['name']);
+    exit;
+}
+
+function folderRename($file, $newName, $oldName)
+{
+    try {
+        if ($newName == $oldName) {
+            throw new Exception('The new folder name must differ from the old one.');
+        }
+
+        if (file_exists($file . '/' . $newName)) {
+            throw new Exception('The new folder name already exists. Please choose a different name.');
+        }
+
+        $res = rename('./' . $oldName, $file . '/' . $newName);
+        if (!$res) {
+            throw new Exception('Failed to change folder name.');
+        }
+
+        echo json_encode([
+            'success' => true,
+            'message' => 'older name changed successfully.'
+        ]);
+    } catch (Exception $exc) {
+        echo json_encode([
+            'success' => false,
+            'message' => $exc->getMessage()
+        ]);
+    }
+
+    exit;
+}
+
+function makeDirectory($file, $directoryName, $allowCreateFolder)
+{
+    if (!$allowCreateFolder) {
+        return;
+    }
+
+    $dir = str_replace('/', '', $directoryName);
+    if(substr($dir, 0, 2) === '..') {
+        exit;
+    }
+
+    if (is_dir($file . '/' . $dir)) {
+        echo json_encode([
+            'success' => false,
+            'message' => 'The new folder name already exists in the directory.'
+        ]);
+    } else {
+        chdir($file);
+        @mkdir($directoryName);
+
+        echo json_encode([
+            'success' => true,
+            'message' => 'Created a new folder successfully!'
+        ]);
+    }
+
+    exit;
+}
+
+function deleteFileOrFolderByPath($file, $allowDelete)
+{
+    if ($allowDelete) {
+        rmrf($file);
+    }
+    exit;
+}
+
+function getListOfFilesAndFolders($file, $allowShowFolders, $hiddenExtensions)
+{
     if (is_dir($file)) {
         $directory = $file;
         $result = [];
-        $search_files = $_REQUEST['search'] ?: '';
-        $files = array_diff(scandir($directory), ['.','..']);
+        $searchFiles = $_REQUEST['search'] ?: '';
+        $searchScope = $_REQUEST['search_scope'] ?: CURRENT_FOLDER_SEARCH_SCOPE;
+        $isGlobalSearch = !empty($searchFiles) && $searchScope == ALL_FOLDER_SEARCH_SCOPE;
+        $files = [];
 
-        $matchingFiles = !$search_files ? $files : array_filter($files, function ($file) use ($search_files) {
-            return strpos($file, $search_files) !== false;
+        if ($isGlobalSearch) {
+            $paths = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator(STORED_DIR, RecursiveDirectoryIterator::SKIP_DOTS),
+                RecursiveIteratorIterator::SELF_FIRST
+            );
+
+            foreach($paths as $path) {
+                $files[] = $path->getRealPath();
+            }
+        } else {
+            $files = array_diff(scandir($directory), ['.','..']);
+        }
+
+        $matching_files = !$searchFiles ? $files : array_filter($files, function ($file) use ($searchFiles) {
+            return strpos(basename($file), $searchFiles) !== false;
         });
 
-        foreach ($matchingFiles as $entry) {
-            if (!is_entry_ignored($entry, $allow_show_folders, $hidden_extensions)) {
-                $i = $directory . '/' . $entry;
-                $stat = stat($i);
+        foreach ($matching_files as $entry) {
+            if (!isEntryIgnored($entry, $allowShowFolders, $hiddenExtensions)) {
+                $full_path = $isGlobalSearch ? $entry : $directory . '/' . $entry;
+                $stat = stat($full_path);
                 $result[] = [
                     'mtime' => $stat['mtime'],
                     'size' => $stat['size'],
-                    'name' => basename($i),
-                    'path' => preg_replace('@^\./@', '', $i),
-                    'is_dir' => is_dir($i),
-                    'is_deleteable' => $allow_delete && ((!is_dir($i) && is_writable($directory)) ||
-                                                               (is_dir($i) && is_writable($directory) && is_recursively_deleteable($i))),
-                    'is_readable' => is_readable($i),
-                    'is_writable' => is_writable($i),
-                    'is_executable' => is_executable($i),
+                    'name' => basename($full_path),
+                    'path' => $isGlobalSearch
+                        ? str_replace(PATH_TO_THE_TOOL, '.', $full_path)
+                        : preg_replace('@^\./|@', '', $full_path),
+                    'is_dir' => is_dir($full_path),
+                    'is_deleteable' => $allowDelete && ((!is_dir($full_path) && is_writable($directory)) ||
+                                                               (is_dir($full_path) && is_writable($directory) && isRecursivelyDeleteable($full_path))),
+                    'is_readable' => is_readable($full_path),
+                    'is_writable' => is_writable($full_path),
+                    'is_executable' => is_executable($full_path),
                 ];
             }
         }
     } else {
         err(412, "Not a Directory");
     }
+
     echo json_encode(['success' => true, 'is_writable' => is_writable($file), 'results' => $result]);
     exit;
-} elseif ($_POST['do'] == 'delete') {
-    if($allow_delete) {
-        rmrf($file);
-    }
-    exit;
-} elseif ($_POST['do'] == 'mkdir' && $allow_create_folder) {
-    // don't allow actions outside root | filter out slashes to catch args like './../outside'
-    $dir = $_POST['name'];
-    $dir = str_replace('/', '', $dir);
-    if(substr($dir, 0, 2) === '..') {
-        exit;
-    }
-    chdir($file);
-    @mkdir($_POST['name']);
-    exit;
-} elseif ($_POST['do'] == 'upload' && $allow_upload) {
-    foreach($disallowed_extensions as $ext) {
-        if(preg_match(sprintf('/\.%s$/', preg_quote($ext)), $_FILES['file_data']['name'])) {
-            err(403, "Files of this type are not allowed.");
-        }
-    }
+}
 
-    $res = move_uploaded_file($_FILES['file_data']['tmp_name'], $file . '/' . $_FILES['file_data']['name']);
-    exit;
-} elseif ($_GET['do'] == 'download') {
+function downloadFile($file)
+{
     $filename = basename($file);
     $finfo = finfo_open(FILEINFO_MIME_TYPE);
     header('Content-Type: ' . finfo_file($finfo, $file));
@@ -82,21 +204,62 @@ if($_GET['do'] == 'list') {
     ));
     ob_flush();
     readfile($file);
-    exit;
 }
 
-function is_entry_ignored($entry, $allow_show_folders, $hidden_extensions)
+function zipAndDownloadFolder($folderPath)
+{
+    $zip = new ZipArchive();
+    $splittedFolderPath = explode("/", $folderPath) ?? DEFAULT_DOWNLOAD_FILE_NAME;
+    $zipFileName = count($splittedFolderPath) == 1
+        ? ($splittedFolderPath[0] . '.zip')
+        : (end($splittedFolderPath) . '.zip');
+
+    // Open the zip file for writing
+    if ($zip->open($zipFileName, ZipArchive::CREATE) === true) {
+        // Add all files and subdirectories to the zip file
+        $files = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($folderPath),
+            RecursiveIteratorIterator::LEAVES_ONLY
+        );
+
+        foreach ($files as $file) {
+            if (is_dir($file)) {
+                $zip->addEmptyDir(str_replace($folderPath . '/', '', $file . '/'));
+            } elseif (is_file($file)) {
+                $zip->addFromString(str_replace($folderPath . '/', '', $file), file_get_contents($file));
+            }
+        }
+
+        // Close the zip file
+        $zip->close();
+
+        // Set headers for force download
+        header('Content-Type: application/zip');
+        header('Content-disposition: attachment; filename=' . $zipFileName);
+        header('Content-Length: ' . filesize($zipFileName));
+
+        // Read the zip file and output it to the browser
+        readfile($zipFileName);
+
+        // Delete the temporary zip file
+        unlink($zipFileName);
+    } else {
+        echo 'Failed to create the zip file.';
+    }
+}
+
+function isEntryIgnored($entry, $allowShowFolders, $hiddenExtensions)
 {
     if ($entry === basename(__FILE__)) {
         return true;
     }
 
-    if (is_dir($entry) && !$allow_show_folders) {
+    if (is_dir($entry) && !$allowShowFolders) {
         return true;
     }
 
     $ext = strtolower(pathinfo($entry, PATHINFO_EXTENSION));
-    if (in_array($ext, $hidden_extensions)) {
+    if (in_array($ext, $hiddenExtensions)) {
         return true;
     }
 
@@ -115,7 +278,8 @@ function rmrf($dir)
         unlink($dir);
     }
 }
-function is_recursively_deleteable($d)
+
+function isRecursivelyDeleteable($d)
 {
     $stack = [$d];
     while($dir = array_pop($stack)) {
@@ -130,24 +294,6 @@ function is_recursively_deleteable($d)
         }
     }
     return true;
-}
-
-function get_absolute_path($path)
-{
-    $path = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $path);
-    $parts = explode(DIRECTORY_SEPARATOR, $path);
-    $absolutes = [];
-    foreach ($parts as $part) {
-        if ('.' == $part) {
-            continue;
-        }
-        if ('..' == $part) {
-            array_pop($absolutes);
-        } else {
-            $absolutes[] = $part;
-        }
-    }
-    return implode(DIRECTORY_SEPARATOR, $absolutes);
 }
 
 function err($code, $msg)
